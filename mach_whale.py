@@ -2,6 +2,7 @@ import json
 import struct
 import binascii
 import pprint
+import sys
 
 def parseUINT32(data):
     return struct.unpack('<I', data)[0]
@@ -24,13 +25,22 @@ def parseFloat32(data):
 # 13001100 58000000 0b150000 00000000 47a70000 00000010
 def parseMsgHeader(msg):
     return {
-        'msgh_bits': parseUINT32(msg[0:4]),
+        'msgh_bits': parseMsgHeader_bits(parseUINT32(msg[0:4])),
         'msgh_size': parseUINT32(msg[4:8]),
         'msgh_remote_port': hex(parseUINT32(msg[8:12])),
         'msgh_local_port': hex(parseUINT32(msg[12:16])),
         'msgh_reserved': parseUINT32(msg[16:20]),
         'msgh_id': parseUINT32(msg[20:24]),
+        'z_chunk': binascii.hexlify(msg[0:24]),
         '_payload': msg[24:]
+    }
+
+def parseMsgHeader_bits(bits):
+    return {
+        'MACH_MSGH_BITS_REMOTE_MASK': hex(0x000000FF & bits),
+        'MACH_MSGH_BITS_LOCAL_MASK':  hex( (0x0000ff00 & bits) >> 8),
+        'MACH_MSGH_BITS_COMPLEX':     hex( (0x80000000 & bits) >> 31),
+        'value' : hex(bits)
     }
 
 # http://blog.wuntee.sexy/
@@ -97,10 +107,10 @@ def parseMsgPayload(msg):
 
         # pp = pprint.PrettyPrinter(indent=2)
         # pp.pprint(msg)
-    elif(parseUINT32(payload[20:24]) == 0xf0f2f4f8):
+    elif(len(payload[20:24]) == 4 and parseUINT32(payload[20:24]) == 0xf0f2f4f8):
         msg['_payload'] = parseCFMessage(payload)
     else:
-        msg['_payload'] = binascii.hexlify(payload)
+        msg['_payload'] = payload
 
     return msg
 
@@ -109,13 +119,14 @@ def processData(dataItem):
 
     return parseMsgPayload(msg)
 
-with open('mach_shark', 'r') as f:
+with open(sys.argv[1], 'r') as f:
     lines = f.readlines()
 
     for line in lines:
         dataItem = json.loads(line)
 
         if('msg' in dataItem):
+            dataItem['z_msg_orig'] = dataItem['msg']
             dataItem['msg'] = binascii.unhexlify(dataItem['msg'])
 
             msg = processData(dataItem)
